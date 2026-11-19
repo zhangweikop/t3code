@@ -636,6 +636,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.settle":
     case "thread.auto-settle":
     case "thread.unsettle":
+    case "thread.lead-settlement.follow":
     case "thread.snooze":
     case "thread.unsnooze":
     case "thread.auto-settle.set":
@@ -1646,6 +1647,62 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     return null;
   });
+
+  /**
+   * A lead's settle carries the threads grouped under it, and its unsettle brings back those
+   * still settled at its settledAt. A lead folded under an active thread settles alone: its
+   * threads stay with the active one.
+   */
+  const groupSettlementEffect = Effect.fn("Orchestrator.groupSettlementEffect")(
+    function* (
+      command: Extract<OrchestrationV2ServerCommand, { type: "thread.settle" | "thread.unsettle" }>,
+      before: OrchestrationV2AppThread,
+      events: ReadonlyArray<OrchestrationV2DomainEvent>,
+    ) {
+      const wasSettled = before.settledOverride === "settled" && before.settledAt !== null;
+      const leadSettledAt =
+        command.type === "thread.unsettle"
+          ? wasSettled
+            ? before.settledAt
+            : null
+          : wasSettled
+            ? null
+            : (events
+                .filter((event) => event.threadId === command.threadId)
+                .flatMap((event) => (event.type === "thread.settled" ? [event.payload] : []))
+                .at(-1)?.settledAt ?? null);
+      if (leadSettledAt == null) return null;
+      const grouped = yield* projectionStore.listGroupedThreads();
+      if (!grouped.some((thread) => thread.groupedUnderThreadId === command.threadId)) return null;
+      if (command.type === "thread.settle") {
+        const seen = new Set<ThreadId>([before.id]);
+        let parentId = before.groupedUnderThreadId ?? null;
+        while (parentId !== null && !seen.has(parentId)) {
+          seen.add(parentId);
+          const parent = yield* projectionStore.findThread(parentId);
+          if (parent === null || parent.deletedAt !== null || parent.archivedAt !== null) break;
+          if (parent.settledOverride !== "settled") return null;
+          parentId = parent.groupedUnderThreadId ?? null;
+        }
+      }
+      return {
+        id: `effect:${command.commandId}:grouped-threads.follow-settlement`,
+        commandId: command.commandId,
+        threadId: command.threadId,
+        request: {
+          type: "grouped-threads.follow-settlement",
+          settled: command.type === "thread.settle",
+          leadSettledAt,
+        },
+      } satisfies PendingOrchestrationEffectV2;
+    },
+    (effect, command) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      ),
+  );
 
   const mapDispatchError =
     (command: Pick<OrchestrationV2ServerCommand, "commandId" | "type">) =>
@@ -15206,10 +15263,61 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           effects: plans.flatMap((plan) => plan.effects),
         };
       }
+      case "thread.settle":
+      case "thread.unsettle": {
+        const before = yield* projectionStore
+          .getThread(command.threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+            ),
+          );
+        yield* dispatchThreadMutation(command, events, effects);
+        const groupEffect = yield* groupSettlementEffect(command, before, yield* Ref.get(events));
+        if (groupEffect !== null)
+          yield* Ref.update(effects, (existing) => [...existing, groupEffect]);
+        break;
+      }
+      case "thread.lead-settlement.follow": {
+        const thread = yield* projectionStore
+          .getThread(command.threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+            ),
+          );
+        const settledWithLead =
+          thread.settledOverride === "settled" &&
+          thread.settledAt !== null &&
+          DateTime.Equivalence(thread.settledAt, command.leadSettledAt);
+        if (command.settled ? thread.settledOverride === "settled" : !settledWithLead) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Thread ${command.threadId} changed since its lead settled.`,
+          });
+        }
+        yield* dispatchThreadMutation(
+          command.settled
+            ? {
+                type: "thread.settle",
+                commandId: command.commandId,
+                threadId: command.threadId,
+                settledAt: command.leadSettledAt,
+              }
+            : {
+                type: "thread.unsettle",
+                commandId: command.commandId,
+                threadId: command.threadId,
+                reason: "user",
+              },
+          events,
+          effects,
+        );
+        break;
+      }
       case "thread.archive":
       case "thread.unarchive":
-      case "thread.settle":
-      case "thread.unsettle":
       case "thread.snooze":
       case "thread.unsnooze":
       case "thread.auto-settle.set":

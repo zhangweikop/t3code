@@ -3904,6 +3904,92 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("settling a lead settles its group, and unsettling it brings back what it moved", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const projectId = ProjectId.make("runtime-layer-group-settle-project");
+      yield* seedProject({
+        projectId,
+        title: "Group settle project",
+        workspaceRoot: "/workspace/group-settle",
+        defaultModelSelection: null,
+        createdAt: "2026-09-07T00:00:00.000Z",
+      });
+      const create = (name: string, groupedUnderThreadId?: ThreadId) =>
+        orchestrator
+          .dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "mcp",
+            commandId: CommandId.make(`group-settle-create-${name}`),
+            threadId: ThreadId.make(`group-settle-${name}`),
+            projectId,
+            title: name,
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            ...(groupedUnderThreadId === undefined ? {} : { groupedUnderThreadId }),
+          })
+          .pipe(Effect.as(ThreadId.make(`group-settle-${name}`)));
+      const settle = (threadId: ThreadId) =>
+        orchestrator
+          .dispatch({
+            type: "thread.settle",
+            commandId: CommandId.make(`group-settle-settle-${threadId}`),
+            threadId,
+          })
+          .pipe(Effect.andThen(worker.drain()));
+      const state = (threadId: ThreadId) =>
+        orchestrator
+          .getThreadProjection(threadId)
+          .pipe(Effect.map(({ thread }) => [thread.settledOverride, thread.settledAt] as const));
+
+      // A new lead took over from an old one, which keeps the worker it launched.
+      const lead = yield* create("lead");
+      const oldLead = yield* create("old-lead", lead);
+      const oldWorker = yield* create("old-worker", oldLead);
+      const doneWorker = yield* create("done-worker", lead);
+      const worker1 = yield* create("worker", lead);
+      const unrelated = yield* create("unrelated");
+
+      yield* settle(doneWorker);
+      const doneAt = (yield* state(doneWorker))[1];
+      yield* TestClock.adjust("1 minute");
+      // The old lead still folds under the active lead, so its worker stays with that lead.
+      yield* settle(oldLead);
+      const oldLeadAt = (yield* state(oldLead))[1];
+      assert.deepEqual(yield* state(oldWorker), [null, null]);
+
+      yield* TestClock.adjust("1 minute");
+      yield* settle(lead);
+      const leadAt = (yield* state(lead))[1];
+      assert.isNotNull(leadAt);
+      assert.deepEqual(yield* state(worker1), ["settled", leadAt]);
+      assert.deepEqual(yield* state(oldWorker), ["settled", leadAt]);
+      assert.deepEqual(yield* state(oldLead), ["settled", oldLeadAt]);
+      assert.deepEqual(yield* state(doneWorker), ["settled", doneAt]);
+      assert.deepEqual(yield* state(unrelated), [null, null]);
+
+      yield* TestClock.adjust("1 minute");
+      yield* orchestrator.dispatch({
+        type: "thread.unsettle",
+        commandId: CommandId.make("group-settle-unsettle-lead"),
+        threadId: lead,
+        reason: "user",
+      });
+      yield* worker.drain();
+      assert.deepEqual(yield* state(lead), ["active", null]);
+      assert.deepEqual(yield* state(worker1), ["active", null]);
+      assert.deepEqual(yield* state(oldWorker), ["active", null]);
+      // Threads settled on their own before the lead stay settled.
+      assert.deepEqual(yield* state(oldLead), ["settled", oldLeadAt]);
+      assert.deepEqual(yield* state(doneWorker), ["settled", doneAt]);
+    }),
+  );
+
   it.effect("keeps the branch pull request when linking another pull request", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

@@ -479,6 +479,39 @@ it.effect("sql: an unsettled-only shell read skips settled threads", () =>
   }).pipe(Effect.provide(layerSql)),
 );
 
+it.effect("sql: a lead becomes a candidate once the threads grouped under it settle", () =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const lead = yield* createThread("group-lead");
+    const worker = yield* createThread("group-worker", { groupedUnderThreadId: lead });
+    yield* createThread("group-done", {
+      groupedUnderThreadId: lead,
+      settledOverride: "settled",
+      settledAt: old,
+    });
+    yield* createThread("group-archived", { groupedUnderThreadId: lead, archivedAt: old });
+    const ids = () =>
+      store
+        .getSettlementCandidates()
+        .pipe(Effect.map((rows) => new Set(rows.map((row) => row.id))));
+    assert.deepEqual(yield* ids(), new Set([worker]));
+
+    yield* store.apply({
+      id: EventId.make("event:settlement:group-worker:settled"),
+      type: "thread.settled",
+      threadId: worker,
+      occurredAt: now,
+      payload: {
+        ...(yield* store.getThread(worker)),
+        settledOverride: "settled",
+        settledAt: now,
+        updatedAt: now,
+      },
+    });
+    assert.deepEqual(yield* ids(), new Set([lead]));
+  }).pipe(Effect.provide(layerSql)),
+);
+
 it.effect("sql: a subagent thread becomes a candidate once its parent is done", () =>
   Effect.gen(function* () {
     const store = yield* ProjectionStore.ProjectionStoreV2;

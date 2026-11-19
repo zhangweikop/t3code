@@ -202,6 +202,13 @@ export type ProjectionThreadPullRequests = Pick<
   "id" | "projectId" | "lineage" | "settledOverride" | "settledAt" | "pullRequests"
 >;
 
+export interface ProjectionGroupedThread extends Pick<
+  OrchestrationV2AppThread,
+  "id" | "settledOverride" | "settledAt"
+> {
+  readonly groupedUnderThreadId: ThreadId;
+}
+
 export type ProjectionSettlementCandidate = Pick<
   OrchestrationV2ThreadShell,
   | "id"
@@ -647,6 +654,11 @@ export interface ProjectionStoreV2Shape {
   readonly getThreadsWithPullRequests: (
     threadId?: ThreadId,
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadPullRequests>, ProjectionStoreV2Error>;
+  /** Live, unarchived threads grouped under another thread, with their settlement. */
+  readonly listGroupedThreads: () => Effect.Effect<
+    ReadonlyArray<ProjectionGroupedThread>,
+    ProjectionStoreV2Error
+  >;
   /** Titles of the given threads that exist, archived ones included. */
   readonly getThreadLinkMetadata: (
     threadIds: ReadonlyArray<ThreadId>,
@@ -8487,6 +8499,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     AND json_extract(parent.payload_json, '$.settledOverride') IS NOT 'settled'
                 )
               )
+              -- A lead settles with its group, so it waits while a thread grouped under it is live.
+              AND t.thread_id NOT IN (
+                SELECT json_extract(grouped.payload_json, '$.groupedUnderThreadId')
+                FROM orchestration_v2_projection_threads grouped
+                WHERE grouped.deleted_at IS NULL
+                  AND json_extract(grouped.payload_json, '$.groupedUnderThreadId') IS NOT NULL
+                  AND json_extract(grouped.payload_json, '$.archivedAt') IS NULL
+                  AND json_extract(grouped.payload_json, '$.settledOverride') IS NOT 'settled'
+              )
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runs active
                 WHERE active.thread_id = t.thread_id
@@ -9302,6 +9323,30 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       return Object.fromEntries(rows.map((row) => [row.thread_id, row.title]));
     }, Effect.mapError(shellSnapshotReadError));
 
+    const listGroupedThreads = Effect.fn("ProjectionStore.listGroupedThreads")(function* () {
+      const rows = yield* sql<{
+        readonly thread_id: string;
+        readonly grouped_under_thread_id: string;
+        readonly settled_override: "settled" | "active" | null;
+        readonly settled_at: string | null;
+      }>`
+        SELECT thread_id,
+          json_extract(payload_json, '$.groupedUnderThreadId') AS grouped_under_thread_id,
+          json_extract(payload_json, '$.settledOverride') AS settled_override,
+          json_extract(payload_json, '$.settledAt') AS settled_at
+        FROM orchestration_v2_projection_threads
+        WHERE deleted_at IS NULL
+          AND json_extract(payload_json, '$.groupedUnderThreadId') IS NOT NULL
+          AND json_extract(payload_json, '$.archivedAt') IS NULL
+      `;
+      return rows.map((row): ProjectionGroupedThread => ({
+        id: ThreadId.make(row.thread_id),
+        groupedUnderThreadId: ThreadId.make(row.grouped_under_thread_id),
+        settledOverride: row.settled_override,
+        settledAt: row.settled_at === null ? null : DateTime.makeUnsafe(row.settled_at),
+      }));
+    }, Effect.mapError(shellSnapshotReadError));
+
     const findGuestShareThreadId = Effect.fn("ProjectionStore.findGuestShareThreadId")(function* (
       shareId: GuestShareId,
     ) {
@@ -9472,6 +9517,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       findThread: readOnReader(findThread),
       getSettlementCandidates: readOnReader(getSettlementCandidates),
       getThreadsWithPullRequests: readOnReader(getThreadsWithPullRequests),
+      listGroupedThreads: readOnReader(listGroupedThreads),
       getThreadTitles: readOnReader(getThreadTitles),
       getThreadLinkMetadata: readOnReader(getThreadLinkMetadata),
       getThreadWorktreePaths: readOnReader(getThreadWorktreePaths),

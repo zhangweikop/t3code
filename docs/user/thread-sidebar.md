@@ -139,7 +139,10 @@ thread. The row says how many threads are folded under it and whether one is
 running or needs you; open it to see them. Each device keeps which groups are open. A started
 thread in another project folds there too and shows its project's name; with project folders, it
 sits in the folder of the thread that started it. A started thread keeps its own row while it is
-in another section, such as settled while the thread that started it is still active. When an
+in another section, such as settled while the thread that started it is still active. Settling a
+row settles the threads folded under it, except one still running or waiting on you, and
+un-settling it brings back the threads it settled. A row with an active folded thread is not
+settled automatically. When an
 agent hands its work over to a new thread, it can group its old thread under the new one, so the
 work, and the threads either started, fold under the thread doing it now. To give a
 folded thread its own row for good, right-click it and choose **Move out of group**. The mobile

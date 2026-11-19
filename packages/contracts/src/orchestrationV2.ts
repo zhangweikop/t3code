@@ -3777,6 +3777,17 @@ const OrchestrationV2InternalCommand = Schema.Union([
     providerThreadId: ProviderThreadId,
     providerTurnId: ProviderTurnId,
   }),
+  /**
+   * Settles a thread with the lead it is grouped under, at the lead's settledAt; unsettling
+   * brings it back only while it still carries that settledAt.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.lead-settlement.follow"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    settled: Schema.Boolean,
+    leadSettledAt: Schema.DateTimeUtc,
+  }),
   Schema.Struct({
     type: Schema.Literal("thread.background-work.settle"),
     commandId: CommandId,

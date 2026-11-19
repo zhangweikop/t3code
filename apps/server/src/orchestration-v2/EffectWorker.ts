@@ -1,4 +1,4 @@
-import { CommandId, type RunId } from "@t3tools/contracts";
+import { CommandId, type RunId, type ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -712,11 +712,74 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
+          case "grouped-threads.follow-settlement": {
+            const { settled, leadSettledAt } = effect.request;
+            return Effect.gen(function* () {
+              const grouped = yield* projectionStore.listGroupedThreads();
+              const followers = groupSettlementFollowers(effect.threadId, grouped).filter(
+                (thread) =>
+                  settled
+                    ? thread.settledOverride !== "settled"
+                    : thread.settledOverride === "settled" &&
+                      thread.settledAt !== null &&
+                      DateTime.Equivalence(thread.settledAt, leadSettledAt),
+              );
+              // A thread still running or waiting on the user refuses to settle and stays in view.
+              yield* Effect.forEach(
+                followers,
+                (thread) =>
+                  threads
+                    .dispatch({
+                      type: "thread.lead-settlement.follow",
+                      commandId: CommandId.make(`${effect.commandId}:follow:${thread.id}`),
+                      threadId: thread.id,
+                      settled,
+                      leadSettledAt,
+                    })
+                    .pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logInfo("A grouped thread did not follow its lead's settlement", {
+                          threadId: thread.id,
+                          cause: Cause.pretty(cause),
+                        }),
+                      ),
+                    ),
+                { discard: true },
+              );
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
+          }
         }
       }),
     });
   }),
 );
+
+/** Every thread grouped below `leadId`, parents before their children. */
+function groupSettlementFollowers(
+  leadId: ThreadId,
+  grouped: ReadonlyArray<ProjectionStore.ProjectionGroupedThread>,
+): ReadonlyArray<ProjectionStore.ProjectionGroupedThread> {
+  const followers: Array<ProjectionStore.ProjectionGroupedThread> = [];
+  const seen = new Set<ThreadId>([leadId]);
+  for (let index = -1; index < followers.length; index += 1) {
+    const parentId = index < 0 ? leadId : followers[index]!.id;
+    for (const thread of grouped) {
+      if (thread.groupedUnderThreadId !== parentId || seen.has(thread.id)) continue;
+      seen.add(thread.id);
+      followers.push(thread);
+    }
+  }
+  return followers;
+}
 
 // A running effect blocks later work on its thread and its lease is never reclaimed in-process,
 // so a stop that hangs must give up and fall through to the normal retry/fail path.
