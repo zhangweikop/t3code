@@ -62,6 +62,8 @@ const clientLaunchHarness = (input: {
   readonly hostedAppUrl?: string;
   /** The orchestrator refuses the new thread's mode, as under a managed ceiling. */
   readonly refusedByCeiling?: true;
+  /** A live thread in the project that makes the call, instead of a client. */
+  readonly callerThreadId?: ThreadId;
 }) => {
   const projectId = ProjectId.make("project:client-target");
   const modelSelection = {
@@ -99,7 +101,14 @@ const clientLaunchHarness = (input: {
     Layer.succeed(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment"),
       requestNamespace: "client:session-1",
-      thread: undefined,
+      thread:
+        input.callerThreadId === undefined
+          ? undefined
+          : {
+              threadId: input.callerThreadId,
+              providerSessionId: "provider-session-lead",
+              providerInstanceId: modelSelection.instanceId,
+            },
       client: {
         sessionId: "session-1",
         label: "Claude Code",
@@ -112,6 +121,19 @@ const clientLaunchHarness = (input: {
     Layer.mock(ThreadManagement.ThreadManagementService)({
       // A thread exists once a launch started it.
       getThreadShell: (threadId) => {
+        if (threadId === input.callerThreadId) {
+          return Effect.succeed({
+            id: threadId,
+            projectId,
+            modelSelection,
+            providerInstanceId: modelSelection.instanceId,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            activeRunId: "run:lead",
+            archivedAt: null,
+            deletedAt: null,
+          } as unknown as OrchestrationV2ThreadShell);
+        }
         const launch = input.launched.find((candidate) => candidate.threadId === threadId);
         return Effect.succeed(
           launch === undefined
@@ -292,6 +314,36 @@ it.effect(
         message: "Example Corp limits threads to Supervised.",
       });
     }),
+);
+
+it.effect("a thread's launch is grouped under it unless it is standalone", () =>
+  Effect.gen(function* () {
+    const lead = ThreadId.make("thread:lead");
+    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+    const { dependencies } = clientLaunchHarness({
+      runtimeModeCeiling: "full-access",
+      launched,
+      callerThreadId: lead,
+    });
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+      ),
+    );
+    const launch = (params: { readonly title: string; readonly standalone?: boolean }) =>
+      toolkit
+        .handle("t3_thread_launch", { ...params, message: "Go" })
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+    yield* launch({ title: "lead w1: worker" });
+    yield* launch({ title: "lead (new)", standalone: true });
+
+    expect(launched.map((launch) => [launch.title, launch.groupedUnderThreadId])).toEqual([
+      ["lead w1: worker", lead],
+      ["lead (new)", undefined],
+    ]);
+    expect(launched.map((launch) => launch.initialMessage?.senderThreadId)).toEqual([lead, lead]);
+  }),
 );
 
 it.effect("a launch steps an inherited mode down to the provider's, and refuses one it lacks", () =>

@@ -803,6 +803,22 @@ function askedForLinkedMachine(
   return hint !== "" && hint === normalize(linked.hint) && hint === normalize(linked.linkedLabel);
 }
 
+function isUngroupOnly(
+  command: Extract<OrchestrationV2Command, { readonly type: "thread.metadata.update" }>,
+): boolean {
+  const {
+    type: _type,
+    commandId: _commandId,
+    threadId: _threadId,
+    groupedUnderThreadId,
+    ...changes
+  } = command;
+  return (
+    groupedUnderThreadId !== undefined &&
+    Object.values(changes).every((value) => value === undefined)
+  );
+}
+
 // A workspace change detaches the session, which can settle the calling run at once. Queuing its
 // follow-up in a later command would let a delegated task report its result before that exists.
 function metadataUpdateContinuation(
@@ -3777,6 +3793,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
         ? {}
         : { delegatedFrom: command.delegatedFrom }),
+      ...(command.groupedUnderThreadId === undefined
+        ? {}
+        : { groupedUnderThreadId: command.groupedUnderThreadId }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
@@ -4884,7 +4903,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : command.regenerateTitle === false || command.title !== undefined
                 ? { titleRegeneration: null }
                 : {}),
-            updatedAt: now,
+            ...(command.groupedUnderThreadId === undefined ? {} : { groupedUnderThreadId: null }),
+            // Leaving a group is arrangement, not activity, so it keeps the thread's place.
+            updatedAt: isUngroupOnly(command) ? thread.updatedAt : now,
           };
         }
         case "thread.pull-request.link":

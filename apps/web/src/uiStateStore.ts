@@ -31,6 +31,7 @@ export interface PersistedUiState {
   sidebarProjectScopeKeys?: string[];
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
+  threadGroupExpandedById?: Record<string, boolean>;
   pullRequestMergeMethod?: string;
 }
 
@@ -43,6 +44,8 @@ export interface UiProjectState {
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
+  /** Lead threads whose grouped threads the sidebar shows, by scoped thread key. */
+  threadGroupExpandedById: Record<string, boolean>;
 }
 
 export interface UiEndpointState {
@@ -62,6 +65,7 @@ const initialState: UiState = {
   sidebarProjectScopeKeys: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
+  threadGroupExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
 };
@@ -149,6 +153,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
         : {},
+    threadGroupExpandedById: sanitizeBooleanRecord(parsed.threadGroupExpandedById),
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     sidebarProjectScopeKeys: sanitizeStringArray(
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
@@ -229,6 +234,7 @@ export function persistState(state: UiState): void {
             : null,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
+        threadGroupExpandedById: state.threadGroupExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
       } satisfies PersistedUiState),
     );
@@ -378,6 +384,15 @@ export function setProjectExpanded(
   };
 }
 
+// Groups start collapsed, so only open ones are stored.
+function toggleThreadGroupExpanded(state: UiState, threadKey: string): UiState {
+  const { [threadKey]: expanded, ...rest } = state.threadGroupExpandedById;
+  return {
+    ...state,
+    threadGroupExpandedById: expanded ? rest : { ...rest, [threadKey]: true },
+  };
+}
+
 export function reorderProjects(
   state: UiState,
   currentProjectOrder: readonly string[],
@@ -430,6 +445,7 @@ interface UiStateStore extends UiState {
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
+  toggleThreadGroupExpanded: (threadKey: string) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
     draggedProjectIds: readonly string[],
@@ -452,6 +468,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
+  toggleThreadGroupExpanded: (threadKey) =>
+    set((state) => toggleThreadGroupExpanded(state, threadKey)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),

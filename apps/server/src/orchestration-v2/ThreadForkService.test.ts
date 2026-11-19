@@ -151,6 +151,7 @@ it.effect("resets a fork's pin, snooze, settle and delegation state but keeps it
       },
       historyOrigin: "v1_import",
       linkOrigin,
+      groupedUnderThreadId: ThreadId.make("lead"),
       tags: ["private"],
     };
     const sourceRun = makeSourceRun("completed");
@@ -167,6 +168,7 @@ it.effect("resets a fork's pin, snooze, settle and delegation state but keeps it
     assert.isNull(result.targetThread.activeOrderKey);
     assert.isNull(result.targetThread.autoSettleDisabledAt);
     assert.isUndefined(result.targetThread.delegatedFrom);
+    assert.isUndefined(result.targetThread.groupedUnderThreadId);
     assert.equal(result.targetThread.historyOrigin, "v1_import");
     assert.deepEqual(result.targetThread.linkOrigin, linkOrigin);
     assert.deepEqual(result.targetThread.tags, ["private"]);

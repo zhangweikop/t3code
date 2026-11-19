@@ -85,10 +85,11 @@ export function withCreationProvenance(
 ): OrchestrationV2Command {
   switch (command.type) {
     case "thread.create": {
-      // Only the server stamps a link's origin or folds in a first message, so a client cannot.
+      // Only the server stamps a link's origin or a launch's group, or folds in a first message.
       const {
         linkOrigin: _linkOrigin,
         delegatedFrom: _delegatedFrom,
+        groupedUnderThreadId: _groupedUnderThreadId,
         initialMessage: _initialMessage,
         ...rest
       } = command;

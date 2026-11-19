@@ -551,57 +551,78 @@ it.effect("runs a thread-bound automation on the provider the thread uses now", 
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
 });
 
-it.effect("retains automation and sender attribution while a message waits in the queue", () => {
-  const harness = makeHarness({ runSetup: () => Effect.never });
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    const launched = yield* launches.launch(
-      launchInput({
-        command: "command:automation:queue",
-        thread: "thread:automation:queue",
-        message: "First message",
-        workspace: { type: "worktree", baseRef: "main" },
-      }),
-    );
-    const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
-    const senderThreadId = ThreadId.make("thread:agent-sender");
-    const queued = yield* threads.sendToThread({
-      projectId,
-      commandId: CommandId.make("command:automation:queued"),
-      threadId: launched.threadId,
-      messageId: MessageId.make("message:automation:queued"),
-      scheduledTaskId,
-      senderThreadId,
-      text: "Run the audit",
-      attachments: [],
-      mode: "queue",
-      createdBy: "agent",
-      creationSource: "mcp",
-    });
-    assert.equal(queued.delivery, "queued");
-    const projection = yield* threads.getThreadProjection(launched.threadId);
-    const message = projection.messages.find((item) => item.id === queued.message.id);
-    assert.equal(message?.scheduledTaskId, scheduledTaskId);
-    assert.equal(message?.senderThreadId, senderThreadId);
-    assert.equal(message?.text, "Run the audit");
-    // A fresh send queues instead of steering, so it needs no steerable run.
-    const fresh = yield* threads.sendToThread({
-      projectId,
-      commandId: CommandId.make("command:automation:queued-fresh"),
-      threadId: launched.threadId,
-      messageId: MessageId.make("message:automation:queued-fresh"),
-      text: "Start over",
-      attachments: [],
-      mode: "steer",
-      freshContext: true,
-      createdBy: "agent",
-      creationSource: "mcp",
-    });
-    assert.equal(fresh.delivery, "queued");
-    assert.isTrue(fresh.run.freshContext);
-  }).pipe(Effect.provide(harness.layer));
-});
+it.effect(
+  "retains automation, sender and group attribution while a message waits in the queue",
+  () => {
+    const harness = makeHarness({ runSetup: () => Effect.never });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const senderThreadId = ThreadId.make("thread:agent-sender");
+      const launched = yield* launches.launch({
+        ...launchInput({
+          command: "command:automation:queue",
+          thread: "thread:automation:queue",
+          message: "First message",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+        groupedUnderThreadId: senderThreadId,
+      });
+      const shell = yield* threads.getThreadShell(launched.threadId);
+      assert.equal(shell?.groupedUnderThreadId, senderThreadId);
+      // Moving a thread out of its group is arrangement, not activity: it keeps its updatedAt.
+      const idle = yield* launches.launch({
+        ...launchInput({ command: "command:grouped:idle", thread: "thread:grouped:idle" }),
+        groupedUnderThreadId: senderThreadId,
+      });
+      yield* TestClock.adjust("1 minute");
+      yield* threads.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("command:grouped:ungroup"),
+        threadId: idle.threadId,
+        groupedUnderThreadId: null,
+      });
+      const ungrouped = yield* threads.getThreadShell(idle.threadId);
+      assert.isUndefined(ungrouped?.groupedUnderThreadId);
+      assert.deepEqual(ungrouped?.updatedAt, idle.projection.thread.updatedAt);
+      const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
+      const queued = yield* threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:automation:queued"),
+        threadId: launched.threadId,
+        messageId: MessageId.make("message:automation:queued"),
+        scheduledTaskId,
+        senderThreadId,
+        text: "Run the audit",
+        attachments: [],
+        mode: "queue",
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      assert.equal(queued.delivery, "queued");
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      const message = projection.messages.find((item) => item.id === queued.message.id);
+      assert.equal(message?.scheduledTaskId, scheduledTaskId);
+      assert.equal(message?.senderThreadId, senderThreadId);
+      assert.equal(message?.text, "Run the audit");
+      // A fresh send queues instead of steering, so it needs no steerable run.
+      const fresh = yield* threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:automation:queued-fresh"),
+        threadId: launched.threadId,
+        messageId: MessageId.make("message:automation:queued-fresh"),
+        text: "Start over",
+        attachments: [],
+        mode: "steer",
+        freshContext: true,
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      assert.equal(fresh.delivery, "queued");
+      assert.isTrue(fresh.run.freshContext);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
 
 it.effect("provisions independent launches concurrently instead of behind a global semaphore", () =>
   Effect.gen(function* () {

@@ -22,6 +22,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
+    threadGroupExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
     ...overrides,
@@ -133,6 +134,7 @@ describe("parsePersistedState", () => {
           "turn-2": true,
         },
       },
+      threadGroupExpandedById: {},
     });
   });
 
@@ -219,6 +221,9 @@ describe("uiStateStore persistence", () => {
           "turn-2": true,
         },
       },
+      threadGroupExpandedById: {
+        "environment:thread-lead": true,
+      },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
     });
 
@@ -244,6 +249,9 @@ describe("uiStateStore persistence", () => {
           "turn-1": false,
           "turn-2": true,
         },
+      },
+      threadGroupExpandedById: {
+        "environment:thread-lead": true,
       },
       pullRequestMergeMethod: "merge",
     });

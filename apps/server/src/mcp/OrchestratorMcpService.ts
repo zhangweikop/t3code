@@ -3149,6 +3149,7 @@ const make = Effect.gen(function* () {
                   ...(parent.thread.linkOrigin === undefined
                     ? {}
                     : { linkOrigin: parent.thread.linkOrigin }),
+                  ...(input.standalone === true ? {} : { groupedUnderThreadId: parent.thread.id }),
                   ...(initialMessage === undefined ? {} : { initialMessage }),
                 })
                 .pipe(

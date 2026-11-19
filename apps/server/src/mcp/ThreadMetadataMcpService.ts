@@ -79,6 +79,13 @@ function metadataCommand(input: {
         threadId: input.threadId,
         regenerateTitle: true,
       };
+    case "ungroup":
+      return {
+        type: "thread.metadata.update",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        groupedUnderThreadId: null,
+      };
   }
 }
 

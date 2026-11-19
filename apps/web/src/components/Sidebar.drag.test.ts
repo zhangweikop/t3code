@@ -680,6 +680,96 @@ describe("sidebar drag projection", () => {
     expect(result.get(sidebarMarkerId("snoozed-header"))).toEqual({ ...stationary, y: 83 });
     expect(result.get(sidebarMarkerId("settled-header"))?.y).toBe(46);
   });
+
+  describe("with a lead's grouped rows", () => {
+    const child = (key: string, section: SidebarSection, leadKey: string): SidebarListItem => ({
+      kind: "thread",
+      key,
+      section,
+      leadKey,
+    });
+    const group = [
+      thread("lead", "active"),
+      child("w1", "active", "lead"),
+      child("w2", "active", "lead"),
+    ];
+    const tail = [settledHeader, marker("settled-placeholder")];
+
+    it("moves an expanded group as one block when another row passes it", () => {
+      const items = [pinnedHeader, divider, ...group, thread("other", "active"), ...tail];
+      const result = preview({ items, settledOrder: [], settledExpanded: true }, "other", "lead");
+      expect([result.get("lead"), result.get("w1"), result.get("w2")]).toEqual([
+        { ...stationary, y: 83 },
+        { ...stationary, y: 83 },
+        { ...stationary, y: 83 },
+      ]);
+    });
+
+    it("lands a drop among the group's rows after the group", () => {
+      const items = [pinnedHeader, divider, thread("other", "active"), ...group, ...tail];
+      const result = preview({ items, settledOrder: [], settledExpanded: true }, "other", "w1");
+      expect([result.get("lead"), result.get("w1"), result.get("w2")]).toEqual([
+        { ...stationary, y: -83 },
+        { ...stationary, y: -83 },
+        { ...stationary, y: -83 },
+      ]);
+    });
+
+    it("carries the group with its dragged lead", () => {
+      const items = [pinnedHeader, divider, ...group, thread("other", "active"), ...tail];
+      const result = preview({ items, settledOrder: [], settledExpanded: true }, "lead", "other");
+      expect(result.get("other")).toEqual({ ...stationary, y: -249 });
+      expect([result.get("w1"), result.get("w2")]).toEqual([
+        { ...stationary, y: 83 },
+        { ...stationary, y: 83 },
+      ]);
+    });
+
+    it("leaves the group in its section when its lead moves to another one", () => {
+      const items = [
+        pinnedHeader,
+        divider,
+        ...group,
+        thread("other", "active"),
+        settledHeader,
+        thread("s", "settled"),
+      ];
+      const result = preview(
+        { items, settledOrder: ["lead", "s"], settledExpanded: true },
+        "lead",
+        "s",
+      );
+      // The drop settles only the lead; its grouped rows stay in Active, above the shelf.
+      expect([result.get("w1"), result.get("w2"), result.get("other")]).toEqual([
+        { ...stationary, y: -83 },
+        { ...stationary, y: -83 },
+        { ...stationary, y: -83 },
+      ]);
+    });
+
+    it("keeps the open thread's lead and that thread visible on a closed shelf", () => {
+      const items = [
+        pinnedHeader,
+        divider,
+        thread("a", "active"),
+        settledHeader,
+        thread("done-lead", "settled"),
+        child("open", "settled", "done-lead"),
+      ];
+      const result = preview(
+        {
+          items,
+          settledOrder: ["done-lead", "hidden"],
+          settledExpanded: false,
+          routeThreadKey: "done-lead",
+        },
+        "a",
+        "a",
+      );
+      expect(result.get("done-lead")?.scaleY).toBe(1);
+      expect(result.get("open")?.scaleY).toBe(1);
+    });
+  });
 });
 
 describe("lifted card clearance", () => {

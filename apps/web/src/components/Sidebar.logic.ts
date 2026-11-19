@@ -220,7 +220,13 @@ export function sidebarMarkerId(marker: SidebarListMarker): string {
 }
 
 export type SidebarListItem =
-  | { readonly kind: "thread"; readonly key: string; readonly section: SidebarSection }
+  | {
+      readonly kind: "thread";
+      readonly key: string;
+      readonly section: SidebarSection;
+      /** Set on a row grouped under a lead's row; it follows that row and has no order of its own. */
+      readonly leadKey?: string;
+    }
   | { readonly kind: "marker"; readonly marker: SidebarListMarker };
 
 export function sidebarListItemId(item: SidebarListItem): string {
@@ -253,7 +259,8 @@ export function resolveSidebarDropTarget(
 ): SidebarDropTarget | null {
   const activeIndex = items.findIndex((item) => sidebarListItemId(item) === activeKey);
   const overIndex = items.findIndex((item) => sidebarListItemId(item) === overId);
-  if (activeIndex === -1 || overIndex === -1 || items[activeIndex]?.kind !== "thread") return null;
+  const active = items[activeIndex];
+  if (overIndex === -1 || active?.kind !== "thread" || active.leadKey !== undefined) return null;
   const moved = items.filter((_, index) => index !== activeIndex);
   moved.splice(overIndex, 0, items[activeIndex]!);
   const section = sectionAtSidebarSlot(moved, overIndex);
@@ -270,7 +277,8 @@ export function resolveSidebarDropTarget(
         item.marker === "settled-header"
       )
         break;
-    } else if (currentSection === "pinned") pinnedOrder.push(item.key);
+    } else if (item.leadKey !== undefined) continue;
+    else if (currentSection === "pinned") pinnedOrder.push(item.key);
     else activeOrder.push(item.key);
   }
   return { section, pinnedOrder, activeOrder };
@@ -285,7 +293,7 @@ type SidebarThreadDropPlan =
     }
   | {
       readonly kind: "pin";
-      readonly order: readonly string[];
+      readonly order: readonly string[] | null;
       readonly orderKey: string | undefined;
       readonly extraAssignments: ReadonlyArray<{ readonly id: string; readonly orderKey: string }>;
     }
@@ -376,6 +384,8 @@ export function planSidebarThreadDrop(input: {
   readonly activeKeysById: ReadonlyMap<string, string | null | undefined>;
   readonly activeReorderableKeys?: ReadonlySet<string>;
   readonly activeTimeOrdered?: boolean;
+  /** The thread folds under a lead in the target section, so it has no position of its own. */
+  readonly activeNests?: boolean;
 }): SidebarThreadDropPlan {
   const {
     activeKey,
@@ -431,7 +441,7 @@ export function planSidebarThreadDrop(input: {
   };
   switch (target.section) {
     case "active": {
-      if (input.activeTimeOrdered) {
+      if (input.activeTimeOrdered || input.activeNests) {
         return activeSection === "active"
           ? { kind: "none" }
           : {
@@ -465,6 +475,9 @@ export function planSidebarThreadDrop(input: {
     case "settled":
       return activeSection === "settled" ? { kind: "none" } : { kind: "settle" };
     case "pinned": {
+      if (input.activeNests) {
+        return { kind: "pin", order: null, orderKey: undefined, extraAssignments: [] };
+      }
       const order = target.pinnedOrder;
       if (
         activeSection === "pinned" &&
@@ -581,6 +594,94 @@ export async function deleteSelectedThreadEntries<
   }
 
   return { deletedThreadKeys, firstFailure };
+}
+
+const sidebarThreadKey = (environmentId: EnvironmentId, threadId: ThreadId) =>
+  scopedThreadKey(scopeThreadRef(environmentId, threadId));
+
+export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [
+  "pinned",
+  "active",
+  "working",
+  "snoozed",
+  "settled",
+];
+/**
+ * Folds each thread under the row it is grouped under, or that row's own lead,
+ * when that row is in the same project and section. Returns the sections without
+ * folded rows, and each lead's folded rows in section order.
+ */
+export function nestSidebarLaunchedThreads<
+  T extends Pick<
+    SidebarThreadSummary,
+    "environmentId" | "id" | "projectId" | "groupedUnderThreadId"
+  >,
+>(
+  sections: Readonly<Record<SidebarSection, readonly T[]>>,
+): {
+  sections: Record<SidebarSection, T[]>;
+  childrenByLeadKey: Map<string, T[]>;
+} {
+  const keyOf = sidebarThreadKey;
+  const listed = new Map<string, { thread: T; section: SidebarSection }>();
+  for (const section of SIDEBAR_SECTIONS) {
+    for (const thread of sections[section]) {
+      listed.set(keyOf(thread.environmentId, thread.id), { thread, section });
+    }
+  }
+  const leadKeyOf = (threadKey: string): string | null => {
+    let current = listed.get(threadKey)!;
+    let leadKey: string | null = null;
+    const seen = new Set([threadKey]);
+    while (current.thread.groupedUnderThreadId) {
+      const parentKey = keyOf(current.thread.environmentId, current.thread.groupedUnderThreadId);
+      const parent = listed.get(parentKey);
+      if (
+        parent === undefined ||
+        parent.section !== current.section ||
+        parent.thread.projectId !== current.thread.projectId
+      ) {
+        break;
+      }
+      if (seen.has(parentKey)) return null;
+      seen.add(parentKey);
+      leadKey = parentKey;
+      current = parent;
+    }
+    return leadKey;
+  };
+  const childrenByLeadKey = new Map<string, T[]>();
+  const remaining = {} as Record<SidebarSection, T[]>;
+  for (const section of SIDEBAR_SECTIONS) {
+    remaining[section] = sections[section].filter((thread) => {
+      const leadKey = leadKeyOf(keyOf(thread.environmentId, thread.id));
+      if (leadKey === null) return true;
+      const children = childrenByLeadKey.get(leadKey);
+      if (children === undefined) childrenByLeadKey.set(leadKey, [thread]);
+      else children.push(thread);
+      return false;
+    });
+  }
+  return { sections: remaining, childrenByLeadKey };
+}
+
+/** Whether a thread dropped into a section folds under a lead there, by the same rule as the list. */
+export function sidebarDropNests<
+  T extends Pick<
+    SidebarThreadSummary,
+    "environmentId" | "id" | "projectId" | "groupedUnderThreadId"
+  >,
+>(sections: Readonly<Record<SidebarSection, readonly T[]>>, thread: T, section: SidebarSection) {
+  const key = sidebarThreadKey(thread.environmentId, thread.id);
+  const others = (list: readonly T[]) =>
+    list.filter((other) => sidebarThreadKey(other.environmentId, other.id) !== key);
+  const moved = {} as Record<SidebarSection, T[]>;
+  for (const each of SIDEBAR_SECTIONS) {
+    moved[each] = each === section ? [...others(sections[each]), thread] : others(sections[each]);
+  }
+  return [...nestSidebarLaunchedThreads(moved).childrenByLeadKey.values()].some((children) =>
+    children.includes(thread),
+  );
 }
 
 /**
@@ -989,6 +1090,20 @@ export function resolveWindowTitleThreadStatus(
   }
 }
 
+const WAITING_FOR_YOU = new Set(["input", "approval", "request", "limited"]);
+const RUNNING = new Set(["working", "preparing"]);
+
+/** How many of a lead's threads wait for the user and how many run, by the dot's states. */
+export function countSidebarThreadGroup(
+  threads: ReadonlyArray<ThreadStatusInput & SidebarThreadStatusInput>,
+): { readonly waiting: number; readonly running: number } {
+  const statuses = threads.map(resolveSidebarRowStatus);
+  return {
+    waiting: statuses.filter((status) => WAITING_FOR_YOU.has(status)).length,
+    running: statuses.filter((status) => RUNNING.has(status)).length,
+  };
+}
+
 /**
  * The dot on a closed boring-sidebar folder: the most urgent state among its
  * hidden threads. Waiting threads stay quiet, like their rows.
@@ -997,21 +1112,14 @@ export function resolveSidebarFolderDot(
   threads: ReadonlyArray<ThreadStatusInput & SidebarThreadStatusInput>,
 ): "attention" | "failed" | "unread" | "working" | null {
   const statuses = new Set(threads.map(resolveSidebarRowStatus));
-  if (
-    statuses.has("input") ||
-    statuses.has("approval") ||
-    statuses.has("request") ||
-    statuses.has("limited")
-  ) {
-    return "attention";
-  }
+  if ([...statuses].some((status) => WAITING_FOR_YOU.has(status))) return "attention";
   if (statuses.has("failed")) return "failed";
   // Rows show Done only for ready threads, so the dot follows the same rule.
   const hasUnread = threads.some(
     (thread) => resolveSidebarRowStatus(thread) === "ready" && hasUnseenCompletion(thread),
   );
   if (hasUnread) return "unread";
-  if (statuses.has("working") || statuses.has("preparing")) return "working";
+  if ([...statuses].some((status) => RUNNING.has(status))) return "working";
   return null;
 }
 

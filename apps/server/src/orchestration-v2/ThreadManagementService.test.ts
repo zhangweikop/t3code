@@ -68,6 +68,8 @@ it("stamps authoritative provenance on commands that create threads or messages"
       threadId: ThreadId.make("thread:elsewhere"),
       title: "Somewhere else",
     },
+    // Only an agent's launch files a thread under the thread that made it.
+    groupedUnderThreadId: ThreadId.make("thread:someone-else"),
     // A client's message goes through intake; only the server folds one into the creation.
     initialMessage: {
       messageId: MessageId.make("message:thread-management:forged"),
@@ -87,6 +89,7 @@ it("stamps authoritative provenance on commands that create threads or messages"
   expect(stamped).not.toHaveProperty("linkOrigin");
   expect(stamped).not.toHaveProperty("delegatedFrom");
   expect(stamped).not.toHaveProperty("initialMessage");
+  expect(stamped).not.toHaveProperty("groupedUnderThreadId");
 });
 
 const layerReceiptsTest = CommandReceiptStore.layer.pipe(

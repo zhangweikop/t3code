@@ -23,6 +23,7 @@ import {
   shouldRecedeSidebarThread,
   sortInboxThreadsByReturn,
   resolveSidebarDropTarget,
+  sidebarListItemId,
   planSidebarThreadDrop,
   resolveSidebarReorderableThreadKeys,
   sortPinnedThreadsForSidebar,
@@ -35,7 +36,10 @@ import {
   resolveSidebarDropVerb,
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
+  countSidebarThreadGroup,
   sidebarFolderExpansionKeys,
+  nestSidebarLaunchedThreads,
+  sidebarDropNests,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -1670,6 +1674,11 @@ describe("resolveSidebarFolderDot", () => {
     expect(resolveSidebarFolderDot([idle, working])).toBe("working");
     expect(resolveSidebarFolderDot([working, unread])).toBe("unread");
     expect(resolveSidebarFolderDot([unread, limited])).toBe("attention");
+    // A lead's thread count names the same states as its dot.
+    expect(countSidebarThreadGroup([idle, working, limited, unread])).toEqual({
+      waiting: 1,
+      running: 1,
+    });
   });
 });
 
@@ -1680,5 +1689,141 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 1, 3)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
+  });
+});
+
+describe("grouped rows in the sidebar's drag model", () => {
+  const item = (key: string, section: SidebarSection, leadKey?: string): SidebarListItem =>
+    leadKey === undefined
+      ? { kind: "thread", key, section }
+      : { kind: "thread", key, section, leadKey };
+  const marker = (name: SidebarListMarker): SidebarListItem => ({ kind: "marker", marker: name });
+  // An expanded lead with two grouped threads, then another active row.
+  const items = [
+    marker("pinned-header"),
+    marker("pinned-divider"),
+    marker("active-placeholder"),
+    item("lead", "active"),
+    item("w1", "active", "lead"),
+    item("w2", "active", "lead"),
+    item("other", "active"),
+    marker("settled-header"),
+    marker("settled-placeholder"),
+    item("done", "settled"),
+  ];
+
+  it("lets a grouped row leave for the composer but not reorder", () => {
+    expect(items.map(sidebarListItemId)).toContain("w1");
+    expect(resolveSidebarDropTarget(items, "w1", "other")).toBeNull();
+  });
+
+  it("lands a drop among a group's rows after the group, ordering top-level rows only", () => {
+    expect(resolveSidebarDropTarget(items, "other", "w1")).toEqual({
+      section: "active",
+      pinnedOrder: [],
+      activeOrder: ["lead", "other"],
+    });
+    expect(resolveSidebarDropTarget(items, "done", "w2")).toEqual({
+      section: "active",
+      pinnedOrder: [],
+      activeOrder: ["lead", "done", "other"],
+    });
+  });
+
+  it("moves a drop that folds under a lead without an order, so it holds until the server agrees", () => {
+    const environmentId = EnvironmentId.make("environment-row");
+    const projectId = ProjectId.make("project-row");
+    const thread = (id: string, groupedUnder?: string) =>
+      makeThreadFixture({
+        id: ThreadId.make(id),
+        environmentId,
+        projectId,
+        groupedUnderThreadId: groupedUnder === undefined ? null : ThreadId.make(groupedUnder),
+      });
+    const lead = thread("lead");
+    const worker = thread("w3", "lead");
+    const sections = { pinned: [], active: [lead], working: [], snoozed: [], settled: [worker] };
+    expect(sidebarDropNests(sections, worker, "active")).toBe(true);
+    expect(sidebarDropNests(sections, worker, "pinned")).toBe(false);
+    expect(
+      planSidebarThreadDrop({
+        activeKey: "w3",
+        activeSection: "settled",
+        target: { section: "active", pinnedOrder: [], activeOrder: ["lead", "w3"] },
+        pinnedOrder: [],
+        pinnedKeysById: new Map(),
+        activeOrder: ["lead"],
+        activeKeysById: new Map([["lead", "a"]]),
+        activeNests: true,
+      }),
+    ).toEqual({
+      kind: "move-active",
+      order: null,
+      assignments: [],
+      unpin: false,
+      unsettle: true,
+      unsnooze: false,
+    });
+  });
+});
+
+describe("nestSidebarLaunchedThreads", () => {
+  it("folds grouped threads under their lead's row within one project and section", () => {
+    const environmentId = EnvironmentId.make("environment-row");
+    const otherEnvironmentId = EnvironmentId.make("environment-other");
+    const projectId = ProjectId.make("project-row");
+    const thread = (id: string, groupedUnder?: string, overrides: ThreadFixtureOverrides = {}) =>
+      makeThreadFixture({
+        id: ThreadId.make(id),
+        environmentId,
+        projectId,
+        groupedUnderThreadId: groupedUnder === undefined ? null : ThreadId.make(groupedUnder),
+        ...overrides,
+      });
+    // basebrain-availability: a TL and the research threads it launched.
+    const lead = thread("tl");
+    const research = thread("research-cause", "tl");
+    const nestedLaunch = thread("w1", "research-cause");
+    const workingResearch = thread("research-live", "tl");
+    const pinnedWorker = thread("w2", "tl");
+    // productize-external-scanner: the live TL was launched by a settled old TL.
+    const settledOldLead = thread("tl-old");
+    const settledOldWorker = thread("w3", "tl-old");
+    const liveLeadOfSettledChain = thread("tl-new", "tl-old");
+    const otherProject = thread("w4", "tl", { projectId: ProjectId.make("project-other") });
+    const otherEnvironment = thread("w5", "tl", { environmentId: otherEnvironmentId });
+    const archivedLeadWorker = thread("w6", "tl-archived");
+    const loopA = thread("loop-a", "loop-b");
+    const loopB = thread("loop-b", "loop-a");
+    const key = (item: Thread) => scopedThreadKey(scopeThreadRef(item.environmentId, item.id));
+
+    const nested = nestSidebarLaunchedThreads({
+      pinned: [pinnedWorker],
+      active: [
+        lead,
+        research,
+        nestedLaunch,
+        liveLeadOfSettledChain,
+        otherProject,
+        otherEnvironment,
+      ],
+      working: [workingResearch, archivedLeadWorker, loopA, loopB],
+      snoozed: [],
+      settled: [settledOldLead, settledOldWorker],
+    });
+
+    expect(nested.sections).toEqual({
+      pinned: [pinnedWorker],
+      active: [lead, liveLeadOfSettledChain, otherProject, otherEnvironment],
+      working: [workingResearch, archivedLeadWorker, loopA, loopB],
+      snoozed: [],
+      settled: [settledOldLead],
+    });
+    expect(nested.childrenByLeadKey).toEqual(
+      new Map([
+        [key(lead), [research, nestedLaunch]],
+        [key(settledOldLead), [settledOldWorker]],
+      ]),
+    );
   });
 });

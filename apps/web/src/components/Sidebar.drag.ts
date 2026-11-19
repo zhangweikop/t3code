@@ -135,7 +135,9 @@ export function createSidebarSortingStrategy(input: {
       if (item.section === "pinned" || item.section === "active" || item.section === "working")
         cardHeight ??= rects[index]?.height;
       else slimHeight ??= rects[index]?.height;
-      if (item.key !== active.key) groups[item.section].push(item);
+      // A lead moved within its section carries its grouped rows; they are placed after it below.
+      const carried = item.leadKey === active.key && target.section === active.section;
+      if (item.key !== active.key && !carried) groups[item.section].push(item);
     }
     const scale =
       slimHeight !== undefined ? slimHeight / 36 : (headerScale ?? (cardHeight ?? 82) / 82);
@@ -150,11 +152,23 @@ export function createSidebarSortingStrategy(input: {
           ? input.settledOrder
           : (input.activeOrder ?? target.activeOrder);
     const ranks = new Map(order.map((key, index) => [key, index]));
-    const rank = ranks.get(active.key) ?? Number.POSITIVE_INFINITY;
-    const index = group.findIndex(
-      (item) => (ranks.get(item.key) ?? Number.POSITIVE_INFINITY) > rank,
+    // A grouped row ranks with its lead, so a drop never lands inside a group.
+    const rankOf = (item: ThreadItem) =>
+      ranks.get(item.leadKey ?? item.key) ?? Number.POSITIVE_INFINITY;
+    const rank = rankOf(active);
+    const index = group.findIndex((item) => rankOf(item) > rank);
+    const carried =
+      target.section === active.section
+        ? items.filter(
+            (item): item is ThreadItem => item.kind === "thread" && item.leadKey === active.key,
+          )
+        : [];
+    group.splice(
+      index < 0 ? group.length : index,
+      0,
+      { ...active, section: target.section },
+      ...carried.map((item) => ({ ...item, section: target.section })),
     );
-    group.splice(index < 0 ? group.length : index, 0, { ...active, section: target.section });
     const settledOrder = (
       input.settledOrder.length > 0 ? input.settledOrder : groups.settled.map((item) => item.key)
     ).filter((key) => key !== active.key || target.section === "settled");
@@ -165,7 +179,15 @@ export function createSidebarSortingStrategy(input: {
     if (routeKey && settledOrder.includes(routeKey) && !visible.includes(routeKey)) {
       visible.push(routeKey);
     }
-    groups.settled = visible.map((key) => ({ kind: "thread", key, section: "settled" }));
+    const settledGroups = new Map<string, ThreadItem[]>();
+    for (const item of groups.settled) {
+      if (item.leadKey === undefined) continue;
+      settledGroups.set(item.leadKey, [...(settledGroups.get(item.leadKey) ?? []), item]);
+    }
+    groups.settled = visible.flatMap((key) => [
+      { kind: "thread" as const, key, section: "settled" as const },
+      ...(settledGroups.get(key) ?? []),
+    ]);
     const projected: SidebarListItem[] = [];
     const marker = (name: SidebarListMarker) => projected.push({ kind: "marker", marker: name });
     const section = (name: "active" | "settled") => {

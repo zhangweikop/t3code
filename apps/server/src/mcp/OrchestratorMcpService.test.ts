@@ -3014,10 +3014,14 @@ describe("OrchestratorMcpService provider resolution", () => {
           const before = yield* orchestrator.getThreadProjection(child.threadId);
           assert.deepEqual(before.runs[0]?.modelSelection, selection);
           assert.equal(before.messages.length, 1);
+          assert.equal(before.thread.groupedUnderThreadId, parentThreadId);
           const empty = yield* service.createThreads(scope, {
             ...request,
             clientRequestId: "empty",
+            standalone: true,
           });
+          const standalone = yield* orchestrator.getThreadProjection(empty.threads[0]!.threadId);
+          assert.isUndefined(standalone.thread.groupedUnderThreadId);
           const raised = yield* service.createThreads(scope, {
             ...request,
             clientRequestId: "raised",

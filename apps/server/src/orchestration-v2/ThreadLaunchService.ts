@@ -112,6 +112,8 @@ export interface ThreadLaunchInput {
   readonly linkOrigin?: OrchestrationV2LinkOrigin;
   /** The parent there, when that environment's agent delegated this as a task. */
   readonly delegatedFrom?: OrchestrationV2DelegatedFrom;
+  /** The calling thread when an agent launches this one through T3 MCP tools. */
+  readonly groupedUnderThreadId?: ThreadId;
 }
 
 type PreparationInput = Pick<
@@ -1338,6 +1340,9 @@ const make = Effect.gen(function* () {
                 ...(input.delegatedFrom === undefined
                   ? {}
                   : { delegatedFrom: input.delegatedFrom }),
+                ...(input.groupedUnderThreadId === undefined
+                  ? {}
+                  : { groupedUnderThreadId: input.groupedUnderThreadId }),
                 createdBy: input.createdBy,
                 creationSource: input.creationSource,
                 ...(initialMessage === undefined

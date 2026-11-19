@@ -8,7 +8,7 @@ agent can use this endpoint to:
 - create an app-owned sub-agent on any supported provider instance;
 - wait for or poll the sub-agent's durable result;
 - cancel an active delegated task; and
-- create one or more ordinary top-level T3 threads;
+- create one or more ordinary T3 threads, grouped under the calling thread;
 - list a project's threads and incrementally read any thread;
 - rename threads, regenerate titles, and link or unlink pull requests;
 - send or steer follow-up messages;
@@ -324,7 +324,8 @@ optional cancellation reason.
 
 ### `create_threads`
 
-Creates between one and twenty ordinary top-level T3 threads:
+Creates between one and twenty ordinary T3 threads, grouped under the calling
+thread (`groupedUnderThreadId`) unless the call passes `standalone: true`:
 
 ```ts
 import type { OrchestratorMcpCreateThreadsInput as CreateThreadsInput } from "@t3tools/contracts";
@@ -339,7 +340,9 @@ without a prompt remain idle. `create_threads` is local-only: `target.environmen
 
 ### `t3_thread_launch`
 
-Launches one ordinary top-level thread through the app's launch service. Use an
+Launches one ordinary thread through the app's launch service. When a thread
+launches it, thread lists group it under that thread (`groupedUnderThreadId`)
+unless the call passes `standalone: true`, as a handoff or separate work should. Use an
 explicit `workspaceStrategy` to create a new worktree (`worktree` with `baseRef`),
 attach an existing checkout (`existing_worktree` with `worktreePath`), or use the
 project root (`root`, also the default). The thread is bound to that workspace
@@ -415,8 +418,9 @@ often leave a dev server running.
 ### `t3_thread_update`
 
 Updates metadata for the calling thread or any other thread in the environment.
-The typed actions are `rename`, which requires `title`, and `regenerate_title`,
-which rejects one. Pull request links go through the separate
+The typed actions are `rename`, which requires `title`, `regenerate_title`, and
+`ungroup`, which moves a thread out of the group it is listed under. Only `rename`
+accepts a title. Pull request links go through the separate
 `link_pull_request` and `unlink_pull_request` tools. Branch and workspace
 changes are outside this tool.
 

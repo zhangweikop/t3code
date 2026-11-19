@@ -78,6 +78,9 @@ export function installSidebarTree(root: HTMLElement) {
     focusedParent = row.dataset.sidebarParent;
     focusedIndex = visibleRows().indexOf(row);
   };
+  // A thread row opens its thread on click, so it names its own toggle.
+  const toggle = (row: HTMLElement) =>
+    (row.querySelector<HTMLElement>("[data-sidebar-toggle]") ?? row).click();
   const onKeyDown = (event: KeyboardEvent) => {
     const row = event.target;
     if (
@@ -123,14 +126,14 @@ export function installSidebarTree(root: HTMLElement) {
         target = rows.at(-1);
         break;
       case "ArrowRight":
-        if (row.getAttribute("aria-expanded") === "false") row.click();
+        if (row.getAttribute("aria-expanded") === "false") toggle(row);
         else
           target = rows.find(
             (candidate) => candidate.dataset.sidebarParent === row.dataset.sidebarRow,
           );
         break;
       case "ArrowLeft":
-        if (row.getAttribute("aria-expanded") === "true") row.click();
+        if (row.getAttribute("aria-expanded") === "true") toggle(row);
         else
           target = rows.find(
             (candidate) => candidate.dataset.sidebarRow === row.dataset.sidebarParent,

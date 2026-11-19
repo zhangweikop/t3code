@@ -129,6 +129,7 @@ import { MiddleTruncate } from "../ui/middle-truncate";
 import { ActivityShimmerOverlay } from "../chat/TimelineRowParts";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
+import { SidebarLaunchedToggle } from "./SidebarLaunchedToggle";
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -573,8 +574,14 @@ type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's branch and PR line under it.
-  variant: "card" | "slim" | "folder" | "folder-multiline";
+  // "launched" is a one-line row under the lead thread that launched it.
+  variant: "card" | "slim" | "folder" | "folder-multiline" | "launched" | "folder-launched";
   navigationParent?: string | undefined;
+  // Set on a lead row: the threads grouped under it.
+  launchedThreads?: readonly SidebarThreadSummary[] | undefined;
+  launchedExpanded?: boolean | undefined;
+  launchedHiddenThreads?: readonly SidebarThreadSummary[] | undefined;
+  onToggleLaunched?: ((threadKey: string) => void) | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
   snoozeSupported: boolean;
@@ -1257,9 +1264,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </span>
   ) : null;
 
+  const launchedExpanded = props.launchedThreads?.length
+    ? (props.launchedExpanded ?? false)
+    : undefined;
+  const launchedToggle =
+    props.launchedThreads?.length && props.onToggleLaunched ? (
+      <SidebarLaunchedToggle
+        threadKey={threadKey}
+        threads={props.launchedThreads}
+        expanded={props.launchedExpanded ?? false}
+        hiddenThreads={props.launchedHiddenThreads ?? []}
+        onToggle={props.onToggleLaunched}
+      />
+    ) : null;
+
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
-    const inFolder = variant === "folder" || multiline;
+    const launchedRow = variant === "launched" || variant === "folder-launched";
+    const inFolder = variant === "folder" || multiline || launchedRow;
     return (
       <li
         data-thread-item={threadKey}
@@ -1280,9 +1302,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 tabIndex={0}
                 data-sidebar-row={threadKey}
                 data-sidebar-parent={props.navigationParent}
+                aria-expanded={launchedExpanded}
                 aria-label={accessibility.label}
                 aria-current={accessibility.current}
-                data-testid={inFolder ? "sidebar-row-folder" : "sidebar-row-slim"}
+                data-testid={
+                  launchedRow
+                    ? "sidebar-row-launched"
+                    : inFolder
+                      ? "sidebar-row-folder"
+                      : "sidebar-row-slim"
+                }
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(
                   rowSurfaceClassName,
@@ -1290,7 +1319,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     ? "flex flex-col justify-center px-2.5 py-1.5"
                     : "flex h-9 items-center gap-2.5 px-2.5",
                   // Lines titles up with the folder name, past its chevron and icon.
-                  inFolder && "ps-9",
+                  variant === "folder-launched" ? "ps-14" : inFolder && "ps-9",
                 )}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
@@ -1317,6 +1346,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {draftIndicator}
               {title}
               {multiline ? titleLineIcons : null}
+              {launchedToggle}
               {pinIndicator}
               {multiline ? null : terminalStatusIcon}
               {isRegeneratingTitle ? (
@@ -1485,6 +1515,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               tabIndex={0}
               data-sidebar-row={threadKey}
               data-sidebar-parent={props.navigationParent}
+              aria-expanded={launchedExpanded}
               aria-label={accessibility.label}
               aria-current={accessibility.current}
               data-testid="sidebar-row-card"
@@ -1668,6 +1699,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 </span>
               ) : null}
               {titleLineIcons}
+              {launchedToggle}
             </div>
             {metaLine}
           </div>
