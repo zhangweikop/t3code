@@ -608,14 +608,11 @@ export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [
 ];
 /**
  * Folds each thread under the row it is grouped under, or that row's own lead,
- * when that row is in the same project and section. Returns the sections without
+ * when that row is in the same section, in any project. Returns the sections without
  * folded rows, and each lead's folded rows in section order.
  */
 export function nestSidebarLaunchedThreads<
-  T extends Pick<
-    SidebarThreadSummary,
-    "environmentId" | "id" | "projectId" | "groupedUnderThreadId"
-  >,
+  T extends Pick<SidebarThreadSummary, "environmentId" | "id" | "groupedUnderThreadId">,
 >(
   sections: Readonly<Record<SidebarSection, readonly T[]>>,
 ): {
@@ -636,13 +633,7 @@ export function nestSidebarLaunchedThreads<
     while (current.thread.groupedUnderThreadId) {
       const parentKey = keyOf(current.thread.environmentId, current.thread.groupedUnderThreadId);
       const parent = listed.get(parentKey);
-      if (
-        parent === undefined ||
-        parent.section !== current.section ||
-        parent.thread.projectId !== current.thread.projectId
-      ) {
-        break;
-      }
+      if (parent === undefined || parent.section !== current.section) break;
       if (seen.has(parentKey)) return null;
       seen.add(parentKey);
       leadKey = parentKey;
@@ -667,10 +658,7 @@ export function nestSidebarLaunchedThreads<
 
 /** Whether a thread dropped into a section folds under a lead there, by the same rule as the list. */
 export function sidebarDropNests<
-  T extends Pick<
-    SidebarThreadSummary,
-    "environmentId" | "id" | "projectId" | "groupedUnderThreadId"
-  >,
+  T extends Pick<SidebarThreadSummary, "environmentId" | "id" | "groupedUnderThreadId">,
 >(sections: Readonly<Record<SidebarSection, readonly T[]>>, thread: T, section: SidebarSection) {
   const key = sidebarThreadKey(thread.environmentId, thread.id);
   const others = (list: readonly T[]) =>

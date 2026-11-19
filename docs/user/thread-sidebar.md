@@ -136,9 +136,11 @@ open.
 When an agent starts other threads from a thread, they fold under that thread's row, so one
 piece of work takes one row. The row says how many threads are folded under it and whether one is
 running or needs you; open it to see them. Each device keeps which groups are open. A started
-thread keeps its own row while it is in another project or section, such as settled while the
-thread that started it is still active. To give a folded thread its own row for good, right-click
-it and choose **Move out of group**. The mobile app lists them as separate threads.
+thread in another project folds there too and shows its project's name; with project folders, it
+sits in the folder of the thread that started it. A started thread keeps its own row while it is
+in another section, such as settled while the thread that started it is still active. To give a
+folded thread its own row for good, right-click it and choose **Move out of group**. The mobile
+app lists them as separate threads.
 
 ### Fold working threads (beta)
 

@@ -3510,6 +3510,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         const isCard =
                           section === "active" || section === "pinned" || section === "working";
                         const launched = leadRow ? undefined : launchedGroups.get(threadKey);
+                        const lead = leadRow ? threadByKey.get(leadRow) : undefined;
                         const rowVariant = leadRow
                           ? folderRow
                             ? "folder-launched"
@@ -3533,6 +3534,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             thread={thread}
                             variant={rowVariant}
+                            showProject={lead !== undefined && lead.projectId !== thread.projectId}
                             navigationParent={
                               leadRow ??
                               folderRow ??

@@ -1768,7 +1768,7 @@ describe("grouped rows in the sidebar's drag model", () => {
 });
 
 describe("nestSidebarLaunchedThreads", () => {
-  it("folds grouped threads under their lead's row within one project and section", () => {
+  it("folds grouped threads under their lead's row within one section, across projects", () => {
     const environmentId = EnvironmentId.make("environment-row");
     const otherEnvironmentId = EnvironmentId.make("environment-other");
     const projectId = ProjectId.make("project-row");
@@ -1790,6 +1790,7 @@ describe("nestSidebarLaunchedThreads", () => {
     const settledOldLead = thread("tl-old");
     const settledOldWorker = thread("w3", "tl-old");
     const liveLeadOfSettledChain = thread("tl-new", "tl-old");
+    // A lead whose workers run in other projects.
     const otherProject = thread("w4", "tl", { projectId: ProjectId.make("project-other") });
     const otherEnvironment = thread("w5", "tl", { environmentId: otherEnvironmentId });
     const archivedLeadWorker = thread("w6", "tl-archived");
@@ -1814,14 +1815,14 @@ describe("nestSidebarLaunchedThreads", () => {
 
     expect(nested.sections).toEqual({
       pinned: [pinnedWorker],
-      active: [lead, liveLeadOfSettledChain, otherProject, otherEnvironment],
+      active: [lead, liveLeadOfSettledChain, otherEnvironment],
       working: [workingResearch, archivedLeadWorker, loopA, loopB],
       snoozed: [],
       settled: [settledOldLead],
     });
     expect(nested.childrenByLeadKey).toEqual(
       new Map([
-        [key(lead), [research, nestedLaunch]],
+        [key(lead), [research, nestedLaunch, otherProject]],
         [key(settledOldLead), [settledOldWorker]],
       ]),
     );

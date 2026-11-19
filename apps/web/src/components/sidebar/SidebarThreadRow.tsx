@@ -577,6 +577,8 @@ type SidebarThreadRowProps = {
   // "launched" is a one-line row under the lead thread that launched it.
   variant: "card" | "slim" | "folder" | "folder-multiline" | "launched" | "folder-launched";
   navigationParent?: string | undefined;
+  // Set on a launched row whose project differs from its lead's.
+  showProject?: boolean | undefined;
   // Set on a lead row: the threads grouped under it.
   launchedThreads?: readonly SidebarThreadSummary[] | undefined;
   launchedExpanded?: boolean | undefined;
@@ -1343,6 +1345,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   ) : null}
                 </span>
               )}
+              {props.showProject && props.project ? (
+                <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+              ) : null}
               {draftIndicator}
               {title}
               {multiline ? titleLineIcons : null}
