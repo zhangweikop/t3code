@@ -40,19 +40,30 @@ const ThreadMetadataClientRequestId = TrimmedNonEmptyString.check(Schema.isMaxLe
   )
   .annotate({ description: "Stable idempotency key to reuse when retrying this mutation." });
 
-export const ThreadMetadataMcpAction = Schema.Literals(["rename", "regenerate_title", "ungroup"]);
+export const ThreadMetadataMcpAction = Schema.Literals([
+  "rename",
+  "regenerate_title",
+  "group",
+  "ungroup",
+]);
 export type ThreadMetadataMcpAction = typeof ThreadMetadataMcpAction.Type;
 
 export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   threadId: Schema.optional(ThreadId),
   action: ThreadMetadataMcpAction,
   title: Schema.optional(ThreadMetadataTitle),
+  underThreadId: Schema.optional(
+    ThreadId.annotate({
+      description: "Thread to list it under, as when a new lead takes over. Only for group.",
+    }),
+  ),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
   Schema.makeFilter((input) =>
-    (input.action === "rename") === (input.title !== undefined)
+    (input.action === "rename") === (input.title !== undefined) &&
+    (input.action === "group") === (input.underThreadId !== undefined)
       ? true
-      : "rename requires title; other actions do not accept one.",
+      : "rename requires title and group requires underThreadId; other actions accept neither.",
   ),
 );
 export type ThreadMetadataMcpUpdateInput = typeof ThreadMetadataMcpUpdateInput.Type;

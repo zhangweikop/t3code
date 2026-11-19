@@ -607,9 +607,9 @@ export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [
   "settled",
 ];
 /**
- * Folds each thread under the row it is grouped under, or that row's own lead,
- * when that row is in the same section, in any project. Returns the sections without
- * folded rows, and each lead's folded rows in section order.
+ * Folds each thread under the topmost thread above it in its group chain that is in the
+ * same section, in any project. Returns the sections without folded rows, and each lead's
+ * folded rows in section order.
  */
 export function nestSidebarLaunchedThreads<
   T extends Pick<SidebarThreadSummary, "environmentId" | "id" | "groupedUnderThreadId">,
@@ -628,15 +628,17 @@ export function nestSidebarLaunchedThreads<
   }
   const leadKeyOf = (threadKey: string): string | null => {
     let current = listed.get(threadKey)!;
+    const { section } = current;
     let leadKey: string | null = null;
     const seen = new Set([threadKey]);
+    // A worker of a settled old lead still folds under the live lead that took over from it.
     while (current.thread.groupedUnderThreadId) {
       const parentKey = keyOf(current.thread.environmentId, current.thread.groupedUnderThreadId);
       const parent = listed.get(parentKey);
-      if (parent === undefined || parent.section !== current.section) break;
+      if (parent === undefined) break;
       if (seen.has(parentKey)) return null;
       seen.add(parentKey);
-      leadKey = parentKey;
+      if (parent.section === section) leadKey = parentKey;
       current = parent;
     }
     return leadKey;

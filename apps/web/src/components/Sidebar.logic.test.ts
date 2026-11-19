@@ -1790,6 +1790,11 @@ describe("nestSidebarLaunchedThreads", () => {
     const settledOldLead = thread("tl-old");
     const settledOldWorker = thread("w3", "tl-old");
     const liveLeadOfSettledChain = thread("tl-new", "tl-old");
+    // After a handoff the old TL is grouped under the TL that runs the initiative now.
+    const currentLead = thread("tl-current");
+    const handedOffLead = thread("tl-handed", "tl-current");
+    const handedOffActiveWorker = thread("w7", "tl-handed");
+    const handedOffSettledWorker = thread("w8", "tl-handed");
     // A lead whose workers run in other projects.
     const otherProject = thread("w4", "tl", { projectId: ProjectId.make("project-other") });
     const otherEnvironment = thread("w5", "tl", { environmentId: otherEnvironmentId });
@@ -1807,23 +1812,27 @@ describe("nestSidebarLaunchedThreads", () => {
         liveLeadOfSettledChain,
         otherProject,
         otherEnvironment,
+        currentLead,
+        handedOffActiveWorker,
       ],
       working: [workingResearch, archivedLeadWorker, loopA, loopB],
       snoozed: [],
-      settled: [settledOldLead, settledOldWorker],
+      settled: [settledOldLead, settledOldWorker, handedOffLead, handedOffSettledWorker],
     });
 
     expect(nested.sections).toEqual({
       pinned: [pinnedWorker],
-      active: [lead, liveLeadOfSettledChain, otherEnvironment],
+      active: [lead, liveLeadOfSettledChain, otherEnvironment, currentLead],
       working: [workingResearch, archivedLeadWorker, loopA, loopB],
       snoozed: [],
-      settled: [settledOldLead],
+      settled: [settledOldLead, handedOffLead],
     });
     expect(nested.childrenByLeadKey).toEqual(
       new Map([
         [key(lead), [research, nestedLaunch, otherProject]],
+        [key(currentLead), [handedOffActiveWorker]],
         [key(settledOldLead), [settledOldWorker]],
+        [key(handedOffLead), [handedOffSettledWorker]],
       ]),
     );
   });

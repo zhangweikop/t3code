@@ -415,6 +415,12 @@ it.layer(Layer.provideMerge(layerTools, layerOrchestration))("work a link starts
         title: "Renamed from the desk",
       });
       assert.equal(renamed.isError, false, JSON.stringify(renamed.content));
+      // A refused group says why, so the agent can move the other thread out first.
+      const group = (threadId: ThreadId, underThreadId: ThreadId) =>
+        call(trusted, "t3_thread_update", { threadId, action: "group", underThreadId });
+      assert.equal((yield* group(users, launched)).isError, false);
+      const cycle = (yield* group(launched, users)).content[0];
+      assert.include(cycle?.type === "text" ? cycle.text : "", "move it out of that group first");
       for (const [name, args] of [
         ["t3_project_update", { projectId, title: "The desk's now" }],
         ["t3_project_create", { title: "t3code", workspaceRoot: "/p/t3code" }],

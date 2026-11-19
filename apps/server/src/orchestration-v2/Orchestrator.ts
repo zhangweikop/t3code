@@ -803,7 +803,7 @@ function askedForLinkedMachine(
   return hint !== "" && hint === normalize(linked.hint) && hint === normalize(linked.linkedLabel);
 }
 
-function isUngroupOnly(
+function isGroupingOnly(
   command: Extract<OrchestrationV2Command, { readonly type: "thread.metadata.update" }>,
 ): boolean {
   const {
@@ -1623,6 +1623,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     },
   );
+
+  // Thread lists nest by this chain, so a thread may not end up grouped under itself.
+  const groupingRefusal = Effect.fn("orchestrationV2.Orchestrator.groupingRefusal")(function* (
+    threadId: ThreadId,
+    underId: ThreadId,
+  ) {
+    if (underId === threadId) return `Thread ${threadId} cannot be grouped under itself.`;
+    const under = yield* projectionStore.findThread(underId);
+    if (under === null || under.deletedAt !== null) return `Thread ${underId} was not found.`;
+    let current: OrchestrationV2AppThread | null = under;
+    const seen = new Set<ThreadId>();
+    while (current !== null && !seen.has(current.id)) {
+      if (current.id === threadId) {
+        return `Thread ${underId} is grouped under ${threadId}; move it out of that group first.`;
+      }
+      seen.add(current.id);
+      current =
+        current.groupedUnderThreadId == null
+          ? null
+          : yield* projectionStore.findThread(current.groupedUnderThreadId);
+    }
+    return null;
+  });
 
   const mapDispatchError =
     (command: Pick<OrchestrationV2ServerCommand, "commandId" | "type">) =>
@@ -4235,6 +4258,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} branch changed before the metadata update could be applied.`,
       });
     }
+    if (command.type === "thread.metadata.update" && command.groupedUnderThreadId != null) {
+      const cause = yield* groupingRefusal(command.threadId, command.groupedUnderThreadId).pipe(
+        mapDispatchError(command),
+      );
+      if (cause !== null) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        });
+      }
+    }
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs"])
@@ -4903,9 +4938,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : command.regenerateTitle === false || command.title !== undefined
                 ? { titleRegeneration: null }
                 : {}),
-            ...(command.groupedUnderThreadId === undefined ? {} : { groupedUnderThreadId: null }),
-            // Leaving a group is arrangement, not activity, so it keeps the thread's place.
-            updatedAt: isUngroupOnly(command) ? thread.updatedAt : now,
+            ...(command.groupedUnderThreadId === undefined
+              ? {}
+              : { groupedUnderThreadId: command.groupedUnderThreadId }),
+            // Grouping is arrangement, not activity, so it keeps the thread's place.
+            updatedAt: isGroupingOnly(command) ? thread.updatedAt : now,
           };
         }
         case "thread.pull-request.link":

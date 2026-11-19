@@ -418,9 +418,11 @@ often leave a dev server running.
 ### `t3_thread_update`
 
 Updates metadata for the calling thread or any other thread in the environment.
-The typed actions are `rename`, which requires `title`, `regenerate_title`, and
-`ungroup`, which moves a thread out of the group it is listed under. Only `rename`
-accepts a title. Pull request links go through the separate
+The typed actions are `rename`, which requires `title`, `regenerate_title`,
+`group`, which lists a thread under `underThreadId` (as when a new lead takes over
+from an old one, so the old lead and its threads fold under the new one), and
+`ungroup`, which moves a thread out of the group it is listed under. `group` refuses
+a thread that would end up under itself. Pull request links go through the separate
 `link_pull_request` and `unlink_pull_request` tools. Branch and workspace
 changes are outside this tool.
 

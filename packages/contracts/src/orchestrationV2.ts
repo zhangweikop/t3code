@@ -3279,8 +3279,8 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
-    /** Null moves the thread out of the group it is listed under. */
-    groupedUnderThreadId: Schema.optional(Schema.Null),
+    /** Lists the thread under another, as a new lead does with the lead it took over from. Null moves it out. */
+    groupedUnderThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),

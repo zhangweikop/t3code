@@ -585,6 +585,30 @@ it.effect(
       const ungrouped = yield* threads.getThreadShell(idle.threadId);
       assert.isUndefined(ungrouped?.groupedUnderThreadId);
       assert.deepEqual(ungrouped?.updatedAt, idle.projection.thread.updatedAt);
+      // A handoff groups the old lead under the thread that took over, as arrangement too.
+      const groupUnder = (threadId: ThreadId, under: ThreadId, id: string) =>
+        threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`command:grouped:${id}`),
+          threadId,
+          groupedUnderThreadId: under,
+        });
+      yield* groupUnder(idle.threadId, launched.threadId, "regroup");
+      const regrouped = yield* threads.getThreadShell(idle.threadId);
+      assert.equal(regrouped?.groupedUnderThreadId, launched.threadId);
+      assert.deepEqual(regrouped?.updatedAt, idle.projection.thread.updatedAt);
+      for (const [threadId, under, id] of [
+        [launched.threadId, idle.threadId, "cycle"],
+        [launched.threadId, launched.threadId, "self"],
+        [launched.threadId, ThreadId.make("thread:missing"), "missing"],
+      ] as const) {
+        const refused = yield* Effect.exit(groupUnder(threadId, under, id));
+        assert.isTrue(Exit.isFailure(refused), id);
+      }
+      assert.equal(
+        (yield* threads.getThreadShell(launched.threadId))?.groupedUnderThreadId,
+        senderThreadId,
+      );
       const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
       const queued = yield* threads.sendToThread({
         projectId,

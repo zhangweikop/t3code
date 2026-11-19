@@ -79,12 +79,13 @@ function metadataCommand(input: {
         threadId: input.threadId,
         regenerateTitle: true,
       };
+    case "group":
     case "ungroup":
       return {
         type: "thread.metadata.update",
         commandId: input.commandId,
         threadId: input.threadId,
-        groupedUnderThreadId: null,
+        groupedUnderThreadId: input.update.underThreadId ?? null,
       };
   }
 }
@@ -176,7 +177,11 @@ const make = Effect.gen(function* () {
         Effect.mapError((error) =>
           failure(
             "orchestration_error",
-            `Unable to ${input.action} for thread ${threadId}: ${errorMessage(error)}`,
+            `Unable to ${input.action} for thread ${threadId}: ${
+              "cause" in error && typeof error.cause === "string"
+                ? error.cause
+                : errorMessage(error)
+            }`,
           ),
         ),
       );
