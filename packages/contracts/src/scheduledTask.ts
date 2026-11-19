@@ -253,6 +253,8 @@ export const ScheduledTask = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   createdBy: OrchestrationV2Actor,
   creationSource: OrchestrationV2CreationSource,
+  /** The thread whose agent created the task; each thread a run launches is grouped under it. */
+  groupedUnderThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   nextRunAt: Schema.NullOr(IsoDateTime),
@@ -296,6 +298,8 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   createdBy: Schema.optional(OrchestrationV2Actor),
   creationSource: Schema.optional(OrchestrationV2CreationSource),
+  /** Read only when the task is created; edits keep the stored value. */
+  groupedUnderThreadId: Schema.optional(ThreadId),
 });
 export type ScheduledTaskUpsertInput = typeof ScheduledTaskUpsertInput.Type;
 

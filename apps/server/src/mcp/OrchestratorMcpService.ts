@@ -2303,6 +2303,9 @@ const make = Effect.gen(function* () {
         interactionMode: limits.interactionMode,
         createdBy: "agent",
         creationSource: "mcp",
+        ...(bindToCurrentThread || parent === undefined
+          ? {}
+          : { groupedUnderThreadId: parent.thread.id }),
         // Scope the idempotency key by provider session so two callers
         // reusing the same clientRequestId cannot collide on one task row.
         ...(input.clientRequestId === undefined

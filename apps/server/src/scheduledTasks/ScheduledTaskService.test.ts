@@ -802,6 +802,60 @@ it.effect("a fresh-session task launches one thread, then starts each later run 
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
+it.effect("each run of a task scheduled from a thread launches under that thread", () =>
+  Effect.gen(function* () {
+    const grouped = yield* Ref.make<Array<ThreadId | undefined>>([]);
+    const lead = ThreadId.make("thread:scheduling-lead");
+    const layer = ScheduledTaskService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          ManagedPolicy.layerTest(),
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+            launch: (input) =>
+              Ref.update(grouped, (all) => [...all, input.groupedUnderThreadId]).pipe(
+                Effect.as({ threadId: ThreadId.make("thread:run"), resumed: false } as never),
+              ),
+          }),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+            namedProjectsRoot: "/projects",
+            isScratchProject: () => Effect.succeed(false),
+          }),
+          NodeCrypto.layer,
+          Layer.succeed(Scheduler.Scheduler, { register: () => Effect.void }),
+        ),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const input = {
+        title: "TL watch",
+        prompt: "Check the workers",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: ProjectId.make("project:test"),
+        workspaceStrategy: { type: "root" },
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      } as const;
+      const watch = ScheduledTaskId.make("task:watch");
+      yield* service.upsert({ ...input, id: watch, groupedUnderThreadId: lead });
+      yield* service.runNow({ id: watch });
+      // An edit from a client form, which never sends the field, keeps it.
+      const { task } = yield* service.upsert({ ...input, id: watch, prompt: "Check again" });
+      assert.equal(task.groupedUnderThreadId, lead);
+      yield* service.runNow({ id: watch });
+      const fromSettings = ScheduledTaskId.make("task:from-settings");
+      yield* service.upsert({ ...input, id: fromSettings });
+      yield* service.runNow({ id: fromSettings });
+
+      assert.deepEqual(yield* Ref.get(grouped), [lead, lead, undefined]);
+    }).pipe(Effect.provide(layer));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
 it.effect("a refused dispatch records its refusal, and opaque causes stay generic", () =>
   Effect.gen(function* () {
     const refusal = "Thread thread:refused was stopped.";

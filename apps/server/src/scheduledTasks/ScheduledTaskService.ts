@@ -225,6 +225,7 @@ interface ScheduledTaskRow {
   readonly interaction_mode: string;
   readonly created_by: string;
   readonly creation_source: string;
+  readonly grouped_under_thread_id: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly next_run_at: string | null;
@@ -414,6 +415,9 @@ const decodeRow = Effect.fnUntraced(
       interactionMode: row.interaction_mode,
       createdBy: row.created_by,
       creationSource: row.creation_source,
+      ...(row.grouped_under_thread_id === null
+        ? {}
+        : { groupedUnderThreadId: row.grouped_under_thread_id }),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       nextRunAt: row.next_run_at,
@@ -538,6 +542,7 @@ export const layer = Layer.effect(
         interaction_mode,
         created_by,
         creation_source,
+        grouped_under_thread_id,
         created_at,
         updated_at,
         next_run_at,
@@ -580,6 +585,7 @@ export const layer = Layer.effect(
         interaction_mode,
         created_by,
         creation_source,
+        grouped_under_thread_id,
         created_at,
         updated_at,
         next_run_at,
@@ -658,6 +664,7 @@ export const layer = Layer.effect(
           interaction_mode,
           created_by,
           creation_source,
+          grouped_under_thread_id,
           created_at,
           updated_at,
           next_run_at,
@@ -683,6 +690,7 @@ export const layer = Layer.effect(
           ${task.interactionMode},
           ${task.createdBy},
           ${task.creationSource},
+          ${task.groupedUnderThreadId ?? null},
           ${task.createdAt},
           ${task.updatedAt},
           ${task.nextRunAt},
@@ -1106,6 +1114,9 @@ export const layer = Layer.effect(
                     },
                     createdBy: active.createdBy,
                     creationSource: active.creationSource,
+                    ...(active.groupedUnderThreadId == null
+                      ? {}
+                      : { groupedUnderThreadId: active.groupedUnderThreadId }),
                   })
                   .pipe(
                     Effect.map((launched) => launched.threadId),
@@ -1552,6 +1563,7 @@ export const layer = Layer.effect(
         isSameSchedule(existingTask.schedule, schedule);
       if (!scheduleUnchanged)
         yield* requireFutureOnce({ enabled: input.enabled, schedule }, now, id);
+      const groupedUnderThreadId = (existingTask ?? input).groupedUnderThreadId;
       const task: ScheduledTask = {
         id,
         title: input.title,
@@ -1567,6 +1579,7 @@ export const layer = Layer.effect(
         interactionMode: input.interactionMode,
         createdBy: existingTask?.createdBy ?? input.createdBy ?? "user",
         creationSource: input.creationSource ?? "web",
+        ...(groupedUnderThreadId == null ? {} : { groupedUnderThreadId }),
         createdAt: existingTask?.createdAt ?? iso(now),
         updatedAt: iso(now),
         nextRunAt: scheduleUnchanged

@@ -3798,6 +3798,17 @@ describe("OrchestratorMcpService provider resolution", () => {
             NodeCrypto.layer,
             Layer.mock(ThreadManagementService.ThreadManagementService)({
               getThreadShell: () => Effect.succeed(null),
+              getThreadRecords: (threadId) =>
+                Effect.succeed({
+                  thread: {
+                    id: threadId,
+                    projectId,
+                    modelSelection: existing.modelSelection,
+                    runtimeMode: existing.runtimeMode,
+                    interactionMode: existing.interactionMode,
+                  },
+                  runs: [],
+                } as never),
             }),
             ServerSettings.layerTest(
               defaults.environment === undefined
@@ -3851,6 +3862,44 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.deepEqual(yield* Ref.get(saved), [
           { type: "worktree", baseRef: "origin/master", startFromOrigin: true },
         ]);
+      }),
+    );
+
+    it.effect("records the calling thread on a task it does not bind to", () =>
+      Effect.gen(function* () {
+        const caller = ThreadId.make("thread:scheduling-lead");
+        const inputs = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.provide(
+            service(
+              masterRepository,
+              yield* Ref.make<ReadonlyArray<ScheduledTask["workspaceStrategy"]>>([]),
+              existing,
+              inputs,
+            ),
+          ),
+        );
+        const fromThread: McpInvocationScope = {
+          ...client,
+          thread: {
+            threadId: caller,
+            providerSessionId: "provider-session:scheduling-lead",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          },
+          client: undefined,
+        };
+        const request = { projectId, prompt: "Check the build", schedule };
+        yield* mcp.scheduleTask(fromThread, { ...request, bindToCurrentThread: false });
+        yield* mcp.scheduleTask(fromThread, request);
+        yield* mcp.scheduleTask(client, request);
+        assert.deepEqual(
+          (yield* Ref.get(inputs)).map((input) => [input.threadId, input.groupedUnderThreadId]),
+          [
+            [null, caller],
+            [caller, undefined],
+            [null, undefined],
+          ],
+        );
       }),
     );
 
