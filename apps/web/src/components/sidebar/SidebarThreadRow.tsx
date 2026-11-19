@@ -1277,6 +1277,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         expanded={props.launchedExpanded ?? false}
         hiddenThreads={props.launchedHiddenThreads ?? []}
         onToggle={props.onToggleLaunched}
+        // On cards the target spans the Settle action above it: same width, same right edge.
+        className={variant === "card" ? "-me-1 min-w-16 justify-end self-stretch pe-1" : undefined}
       />
     ) : null;
 

@@ -25,6 +25,7 @@ export function SidebarLaunchedToggle(props: {
   expanded: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: (threadKey: string) => void;
+  className?: string | undefined;
 }) {
   const gt = useGT();
   const m = useMessages();
@@ -57,8 +58,13 @@ export function SidebarLaunchedToggle(props: {
     event.stopPropagation();
     props.onToggle(props.threadKey);
   };
+  // Clicks around the pill land on this wrapper, so the parent can widen the mouse target
+  // with layout classes; the pill stays the focusable, labelled control.
   return (
-    <span className="inline-flex shrink-0 items-center gap-1">
+    <span
+      className={cn("inline-flex shrink-0 cursor-pointer items-center gap-1", props.className)}
+      onClick={handleClick}
+    >
       {dot ? (
         <span aria-hidden className={cn("size-1.5 rounded-full", FOLDER_DOT_CLASS_NAME[dot])} />
       ) : null}
@@ -71,7 +77,6 @@ export function SidebarLaunchedToggle(props: {
               aria-expanded={expanded}
               // The dot is visual; its state is read out with the count.
               aria-label={dot ? description + m(FOLDER_DOT_LABEL[dot]) : description}
-              onClick={handleClick}
               size="sm"
               variant="secondary"
             />
